@@ -60,7 +60,7 @@ clean_artifacts() {
 # Funktion, um Repositories herunterzuladen
 download() {
     if [[ "$TERMUX_APP_TYPE" == "f-droid" ]]; then
-        git clone --depth 1 https://github.com/at486628-cmyk/termux-packages               termux-packages-main
+        git clone --depth 1 github.com/termux/termux-packages               termux-packages-main
         git clone --depth 1 https://github.com/termux/termux-tasker.git                 termux-apps-main/termux-tasker
         git clone --depth 1 https://github.com/termux/termux-float.git                  termux-apps-main/termux-float
         git clone --depth 1 https://github.com/termux/termux-widget.git                 termux-apps-main/termux-widget
@@ -89,7 +89,7 @@ install_plugin() {
 
 # Funktion, um Bootstrap-Patches anzuwenden
 patch_bootstraps() {
-    # The reason why it is necessary to replace the name first, then patch bootstraps, but do the reverse for apps,
+    # The reason why it is necesary to replace the name first, then patch bootstraps, but do the reverse for apps,
     # is because command-not-found must be partially unpatched back to the default TERMUX_PREFIX to build,
     # so that patch must apply after the bootstraps' name replacement has completed, but the apps contain the
     # string "com.termux" in their code in many more places than the bootstraps do, so it's easier to patch them first.
