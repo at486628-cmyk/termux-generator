@@ -27,6 +27,7 @@ DISABLE_X11=""
 
 source "$TERMUX_GENERATOR_HOME/scripts/termux_generator_utils.sh"
 source "$TERMUX_GENERATOR_HOME/scripts/termux_generator_steps.sh"
+source "$TERMUX_GENERATOR_HOME/scripts/termux_generator_all.sh"
 
 # Anzeige der Hilfe
 show_usage() {
@@ -74,7 +75,6 @@ show_usage() {
     echo " --disable-gui                    Disable building the GUI addon app."
     echo "                                  Currently, this option only affects builds of type f-droid."
     echo " --disable-x11                    Disable building the X11 addon app."
-    echo "                                  Currently, this option only affects builds of type f-droid."
     echo " -d, --dirty                      Build without cleaning previous artifacts."
     echo
 }
@@ -127,7 +127,7 @@ while (($# > 0)); do
                 exit 1
             fi
             ;;
-		--architectures)
+        --architectures)
             if [ $# -gt 1 ] && [ -n "$2" ] && [[ $2 != -* ]]; then
                 BOOTSTRAP_ARCHITECTURES="$2"
                 shift 1
@@ -192,6 +192,8 @@ while (($# > 0)); do
     shift 1
 done
 
+TERMUX_GENERATOR_CONTAINER_NAME="$TERMUX_APP__PACKAGE_NAME-$TERMUX_APP_TYPE-package-builder"
+
 if [ -z "${DO_NOT_CLEAN}" ]; then
     # Validierung und Ausführung
     check_names
@@ -199,7 +201,6 @@ if [ -z "${DO_NOT_CLEAN}" ]; then
     clean_artifacts
     download
     if [ -n "$TERMUX_GENERATOR_PLUGIN" ]; then
-        build_plugin
         install_plugin
     fi
     patch_bootstraps
