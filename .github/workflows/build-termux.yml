@@ -73,7 +73,7 @@ on:
         description: "Build the X11 addon app."
         required: false
         type: boolean
-        default: true
+        default: false
       plugin:
         description: "Specify plugin."
         required: false
@@ -84,6 +84,16 @@ jobs:
     steps:
       - name: Clone repository
         uses: actions/checkout@v4
+      - name: Disable bundled X11 bootstrap packages
+        run: |
+          # termux-generator adds xkeyboard-config for Termux:X11 by default.
+          # Remove it so disabling x11 also prevents X11-related packages from entering the bootstrap.
+          if [ -f "build-termux.sh" ]; then
+            sed -i 's|ADDITIONAL_PACKAGES="xkeyboard-config".*|ADDITIONAL_PACKAGES="" # X11 bootstrap packages disabled|g' build-termux.sh
+            echo "Current ADDITIONAL_PACKAGES lines:"
+            grep -n 'ADDITIONAL_PACKAGES=' build-termux.sh || true
+          fi
+
       - name: Set --add
         if: "${{ github.event.inputs.add != '' }}"
         run: echo "ADDITIONAL_PACKAGES=--add ${{ github.event.inputs.add }}" >> $GITHUB_ENV
@@ -137,6 +147,22 @@ jobs:
         run: echo "PLUGIN=--plugin ${{ github.event.inputs.plugin }}" >> $GITHUB_ENV
       - name: Build Termux
         run: |
+          # Safety fallback:
+          # If the foot package appears anyway, replace the broken Codeberg source URL
+          # before any download attempt.
+          (
+            for i in {1..300}; do
+              if [ -f "termux-packages-main/x11-packages/foot/build.sh" ]; then
+                sed -i 's|https://codeberg.org/dnkl/foot/archive/${TERMUX_PKG_VERSION}.tar.gz|https://ftp.fr.openbsd.org/pub/OpenBSD/distfiles/foot-${TERMUX_PKG_VERSION}.tar.gz|g' \
+                  termux-packages-main/x11-packages/foot/build.sh
+                echo "foot source URL after patch:"
+                grep "TERMUX_PKG_SRCURL" termux-packages-main/x11-packages/foot/build.sh || true
+                break
+              fi
+              sleep 1
+            done
+          ) &
+
           ./build-termux.sh \
                 $ADDITIONAL_PACKAGES \
                 $TERMUX_APP__PACKAGE_NAME \
