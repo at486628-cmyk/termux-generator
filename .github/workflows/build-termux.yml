@@ -13,20 +13,23 @@ on:
         description: "Specify TERMUX_APP__USER_PATH path."
         required: false
       type:
-        description: "Specify the Termux project to fork [f-droid, play-store]. Defaults to f-droid."
+        description: "Specify the Termux project [f-droid, play-store]."
         required: false
+        default: "f-droid"
       architectures:
-        description: "Specify the bootstrap architectures to include in a comma-separated list [aarch64,arm,x86_64,i686]."
+        description: "Bootstrap architectures [aarch64,arm,x86_64,i686]."
         required: false
+        default: "aarch64"
       bootstrap-second-stage:
         description: "Automatically execute termux-bootstrap-second-stage.sh."
         required: false
         type: boolean
         default: true
       ssh-server:
-        description: "Bundle an SSH server with the default password 'changeme'."
+        description: "Bundle an SSH server (default password 'changeme')."
         required: false
         type: boolean
+        default: false
       bootstrap:
         description: "Build the bootstrap(s)."
         required: false
@@ -76,151 +79,156 @@ on:
         description: "Build the X11 addon app."
         required: false
         type: boolean
-        default: true
+        default: false
       plugin:
-        description: "Specify plugin."
+        description: "Specify a plugin."
         required: false
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    permissions:
+      contents: read
     steps:
       - name: Clone repository
         uses: actions/checkout@v4
-      - name: Set --add
-        if: "${{ github.event.inputs.add != '' }}"
-        run: echo "ADDITIONAL_PACKAGES=--add ${{ github.event.inputs.add }}" >> $GITHUB_ENV
-      - name: Set --name
-        if: "${{ github.event.inputs.name != '' }}"
-        run: echo "TERMUX_APP__PACKAGE_NAME=--name ${{ github.event.inputs.name }}" >> $GITHUB_ENV
-      - name: Set --user-path
-        if: "${{ github.event.inputs.user-path != '' }}"
-        run: echo "TERMUX_APP__PACKAGE_NAME=--user-path ${{ github.event.inputs.user-path }}" >> $GITHUB_ENV
-      - name: Set --type
-        if: "${{ github.event.inputs.type != '' }}"
-        run: echo "TERMUX_APP_TYPE=--type ${{ github.event.inputs.type }}" >> $GITHUB_ENV
-      - name: Set --architectures
-        if: "${{ github.event.inputs.architectures != '' }}"
-        run: echo "BOOTSTRAP_ARCHITECTURES=--architectures ${{ github.event.inputs.architectures }}" >> $GITHUB_ENV
-      - name: Set --disable-bootstrap-second-stage
-        if: "${{ github.event.inputs.bootstrap-second-stage == 'false' }}"
-        run: echo "DISABLE_BOOTSTRAP_SECOND_STAGE=--disable-bootstrap-second-stage" >> $GITHUB_ENV
-      - name: Set --enable-ssh-server
-        if: "${{ github.event.inputs.ssh-server == 'true' }}"
-        run: echo "ENABLE_SSH_SERVER=--enable-ssh-server" >> $GITHUB_ENV
-      - name: Set --disable-bootstrap
-        if: "${{ github.event.inputs.bootstrap == 'false' }}"
-        run: echo "DISABLE_BOOTSTRAP=--disable-bootstrap" >> $GITHUB_ENV
-      - name: Set --disable-terminal
-        if: "${{ github.event.inputs.terminal == 'false' }}"
-        run: echo "DISABLE_TERMINAL=--disable-terminal" >> $GITHUB_ENV
-      - name: Set --disable-tasker
-        if: "${{ github.event.inputs.tasker == 'false' }}"
-        run: echo "DISABLE_TASKER=--disable-tasker" >> $GITHUB_ENV
-      - name: Set --disable-float
-        if: "${{ github.event.inputs.float == 'false' }}"
-        run: echo "DISABLE_FLOAT=--disable-float" >> $GITHUB_ENV
-      - name: Set --disable-widget
-        if: "${{ github.event.inputs.widget == 'false' }}"
-        run: echo "DISABLE_WIDGET=--disable-widget" >> $GITHUB_ENV
-      - name: Set --disable-api
-        if: "${{ github.event.inputs.api == 'false' }}"
-        run: echo "DISABLE_API=--disable-api" >> $GITHUB_ENV
-      - name: Set --disable-boot
-        if: "${{ github.event.inputs.boot == 'false' }}"
-        run: echo "DISABLE_BOOT=--disable-boot" >> $GITHUB_ENV
-      - name: Set --disable-styling
-        if: "${{ github.event.inputs.styling == 'false' }}"
-        run: echo "DISABLE_STYLING=--disable-styling" >> $GITHUB_ENV
-      - name: Set --disable-gui
-        if: "${{ github.event.inputs.gui == 'false' }}"
-        run: echo "DISABLE_GUI=--disable-gui" >> $GITHUB_ENV
-      - name: Set --disable-x11
-        if: "${{ github.event.inputs.x11 == 'false' }}"
-        run: echo "DISABLE_X11=--disable-x11" >> $GITHUB_ENV
-      - name: Set --plugin
-        if: "${{ github.event.inputs.plugin != '' }}"
-        run: echo "PLUGIN=--plugin ${{ github.event.inputs.plugin }}" >> $GITHUB_ENV
-      - name: Fix free-space.sh patch
+
+      # The patch predates a change to upstream free-space.sh's grep expression.
+      # This changes only the two diff lines; the second hunk is preserved.
+      - name: Refresh free-space.sh patch
+        if: ${{ inputs.type == 'f-droid' || inputs.type == '' }}
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           from urllib.request import urlopen
 
-          url = "https://raw.githubusercontent.com/termux/termux-packages/master/scripts/free-space.sh"
+          url = 'https://raw.githubusercontent.com/termux/termux-packages/master/scripts/free-space.sh'
+          with urlopen(url, timeout=30) as response:
+              upstream = response.read().decode('utf-8')
+          lines = [s for s in upstream.splitlines() if "grep -P '" in s and 'temurin-' in s]
+          if len(lines) != 1:
+              raise SystemExit('Cannot locate a unique upstream temurin- grep line')
+          original = lines[0]
+          changed = original.replace('|temurin-', '')
+          if original == changed:
+              raise SystemExit('Cannot remove temurin- from upstream expression')
 
-          upstream = urlopen(url).read().decode()
-
-          source_line = next(
-              (line for line in upstream.splitlines()
-               if "grep -P '" in line),
-              None
-          )
-
-          if not source_line or "|temurin-" not in source_line:
-              raise SystemExit("Upstream free-space.sh changed")
-
-          replacement_line = source_line.replace("|temurin-", "")
-
-          modified = []
-
-          for path in Path("f-droid-patches/bootstrap-patches").rglob("*"):
+          fixed = []
+          for path in Path('f-droid-patches/bootstrap-patches').rglob('*'):
               if not path.is_file():
                   continue
-
-              content = path.read_text()
-
-              if "scripts/free-space.sh" not in content:
+              raw = path.read_text(encoding='utf-8')
+              if 'scripts/free-space.sh' not in raw:
                   continue
-
-              lines = content.splitlines(keepends=True)
-              minus = 0
-              plus = 0
-
-              for i, line in enumerate(lines):
-                  if line.startswith("-") and "grep -P '" in line:
-                      lines[i] = "-" + source_line + "\n"
+              current_file = False
+              minus = plus = 0
+              output = []
+              for line in raw.splitlines(keepends=True):
+                  if line.startswith('diff --git '):
+                      current_file = 'scripts/free-space.sh' in line
+                  elif line.startswith('--- '):
+                      current_file = False
+                  elif line.startswith('+++ '):
+                      current_file = 'scripts/free-space.sh' in line
+                  if current_file and line.startswith('-') and not line.startswith('---') and "grep -P '" in line:
+                      line = '-' + original + '\n'
                       minus += 1
-
-                  elif line.startswith("+") and "grep -P '" in line:
-                      lines[i] = "+" + replacement_line + "\n"
+                  elif current_file and line.startswith('+') and not line.startswith('+++') and "grep -P '" in line:
+                      line = '+' + changed + '\n'
                       plus += 1
-
+                  output.append(line)
               if minus == 1 and plus == 1:
-                  path.write_text("".join(lines))
-                  modified.append(str(path))
-
-          if not modified:
-              raise SystemExit("No matching free-space.sh patch found")
-
-          print("Successfully updated:")
-          for path in modified:
-              print(path)
+                  path.write_text(''.join(output), encoding='utf-8')
+                  fixed.append(str(path))
+              elif minus or plus:
+                  raise SystemExit(f'Unexpected grep patch shape: {path} ({minus}, {plus})')
+          if not fixed:
+              raise SystemExit('free-space.sh patch not located; inspect repository layout')
+          print('Updated patches:', ', '.join(fixed))
           PY
+
+      - name: Restore Termux source archives
+        uses: actions/cache/restore@v4
+        with:
+          path: .termux-build/*/cache
+          key: termux-sources-${{ runner.os }}-${{ github.event.inputs.architectures || 'aarch64' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            termux-sources-${{ runner.os }}-${{ github.event.inputs.architectures || 'aarch64' }}-
+
+      - name: Mount the source cache into Docker
+        shell: bash
         run: |
-          ./build-termux.sh \
-                $ADDITIONAL_PACKAGES \
-                $TERMUX_APP__PACKAGE_NAME \
-                $TERMUX_APP_TYPE \
-                $BOOTSTRAP_ARCHITECTURES \
-                $DISABLE_BOOTSTRAP_SECOND_STAGE \
-                $ENABLE_SSH_SERVER \
-                $DISABLE_BOOTSTRAP \
-                $DISABLE_TERMINAL \
-                $DISABLE_TASKER \
-                $DISABLE_FLOAT \
-                $DISABLE_WIDGET \
-                $DISABLE_API \
-                $DISABLE_BOOT \
-                $DISABLE_STYLING \
-                $DISABLE_GUI \
-                $DISABLE_X11 \
-                $PLUGIN
+          mkdir -p "$GITHUB_WORKSPACE/.termux-build"
+          echo "TERMUX_DOCKER_RUN_EXTRA_ARGS=--volume $GITHUB_WORKSPACE/.termux-build:/home/builder/.termux-build" >> "$GITHUB_ENV"
+          echo 'Restored cache size:'
+          du -sh "$GITHUB_WORKSPACE/.termux-build" || true
+
+      - name: Build Termux
+        shell: bash
+        env:
+          IN_ADD: ${{ inputs.add }}
+          IN_NAME: ${{ inputs.name }}
+          IN_USER_PATH: ${{ inputs['user-path'] }}
+          IN_TYPE: ${{ inputs.type }}
+          IN_ARCH: ${{ inputs.architectures }}
+          IN_BOOTSTRAP_SECOND_STAGE: ${{ inputs['bootstrap-second-stage'] }}
+          IN_SSH_SERVER: ${{ inputs['ssh-server'] }}
+          IN_BOOTSTRAP: ${{ inputs.bootstrap }}
+          IN_TERMINAL: ${{ inputs.terminal }}
+          IN_TASKER: ${{ inputs.tasker }}
+          IN_FLOAT: ${{ inputs.float }}
+          IN_WIDGET: ${{ inputs.widget }}
+          IN_API: ${{ inputs.api }}
+          IN_BOOT: ${{ inputs.boot }}
+          IN_STYLING: ${{ inputs.styling }}
+          IN_GUI: ${{ inputs.gui }}
+          IN_X11: ${{ inputs.x11 }}
+          IN_PLUGIN: ${{ inputs.plugin }}
+        run: |
+          args=()
+          [[ -z "$IN_ADD" ]] || args+=(--add "$IN_ADD")
+          [[ -z "$IN_NAME" ]] || args+=(--name "$IN_NAME")
+          [[ -z "$IN_USER_PATH" ]] || args+=(--user-path "$IN_USER_PATH")
+          [[ -z "$IN_TYPE" ]] || args+=(--type "$IN_TYPE")
+          [[ -z "$IN_ARCH" ]] || args+=(--architectures "$IN_ARCH")
+          [[ "$IN_BOOTSTRAP_SECOND_STAGE" != 'false' ]] || args+=(--disable-bootstrap-second-stage)
+          [[ "$IN_SSH_SERVER" != 'true' ]] || args+=(--enable-ssh-server)
+          [[ "$IN_BOOTSTRAP" != 'false' ]] || args+=(--disable-bootstrap)
+          [[ "$IN_TERMINAL" != 'false' ]] || args+=(--disable-terminal)
+          [[ "$IN_TASKER" != 'false' ]] || args+=(--disable-tasker)
+          [[ "$IN_FLOAT" != 'false' ]] || args+=(--disable-float)
+          [[ "$IN_WIDGET" != 'false' ]] || args+=(--disable-widget)
+          [[ "$IN_API" != 'false' ]] || args+=(--disable-api)
+          [[ "$IN_BOOT" != 'false' ]] || args+=(--disable-boot)
+          [[ "$IN_STYLING" != 'false' ]] || args+=(--disable-styling)
+          [[ "$IN_GUI" != 'false' ]] || args+=(--disable-gui)
+          [[ "$IN_X11" != 'false' ]] || args+=(--disable-x11)
+          [[ -z "$IN_PLUGIN" ]] || args+=(--plugin "$IN_PLUGIN")
+          ./build-termux.sh "${args[@]}"
+
+      # Save downloaded source archives even when a package download/build fails.
+      - name: Show source cache size
+        if: always()
+        shell: bash
+        run: |
+          du -sh .termux-build 2>/dev/null || true
+          df -h . || true
+
+      - name: Save source archives
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .termux-build/*/cache
+          key: termux-sources-${{ runner.os }}-${{ github.event.inputs.architectures || 'aarch64' }}-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4.6.0
         with:
           name: Termux APKs or bootstraps
+          if-no-files-found: warn
           path: |
             ./*.apk
             ./*.zip
