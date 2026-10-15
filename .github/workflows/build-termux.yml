@@ -141,7 +141,63 @@ jobs:
       - name: Set --plugin
         if: "${{ github.event.inputs.plugin != '' }}"
         run: echo "PLUGIN=--plugin ${{ github.event.inputs.plugin }}" >> $GITHUB_ENV
-      - name: Build Termux
+            - name: Fix free-space.sh patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.request import urlopen
+
+          url = "https://raw.githubusercontent.com/termux/termux-packages/master/scripts/free-space.sh"
+
+          upstream = urlopen(url).read().decode()
+
+          source_line = next(
+              (line for line in upstream.splitlines()
+               if "grep -P '" in line),
+              None
+          )
+
+          if not source_line or "|temurin-" not in source_line:
+              raise SystemExit("Upstream free-space.sh changed")
+
+          replacement_line = source_line.replace("|temurin-", "")
+
+          modified = []
+
+          for path in Path("f-droid-patches/bootstrap-patches").rglob("*"):
+              if not path.is_file():
+                  continue
+
+              content = path.read_text()
+
+              if "scripts/free-space.sh" not in content:
+                  continue
+
+              lines = content.splitlines(keepends=True)
+              minus = 0
+              plus = 0
+
+              for i, line in enumerate(lines):
+                  if line.startswith("-") and "grep -P '" in line:
+                      lines[i] = "-" + source_line + "\n"
+                      minus += 1
+
+                  elif line.startswith("+") and "grep -P '" in line:
+                      lines[i] = "+" + replacement_line + "\n"
+                      plus += 1
+
+              if minus == 1 and plus == 1:
+                  path.write_text("".join(lines))
+                  modified.append(str(path))
+
+          if not modified:
+              raise SystemExit("No matching free-space.sh patch found")
+
+          print("Successfully updated:")
+          for path in modified:
+              print(path)
+          PY
         run: |
           ./build-termux.sh \
                 $ADDITIONAL_PACKAGES \
