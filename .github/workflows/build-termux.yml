@@ -141,7 +141,7 @@ jobs:
       - name: Set --plugin
         if: "${{ github.event.inputs.plugin != '' }}"
         run: echo "PLUGIN=--plugin ${{ github.event.inputs.plugin }}" >> $GITHUB_ENV
-            - name: Fix free-space.sh patch
+      - name: Fix free-space.sh patch
         shell: bash
         run: |
           python3 - <<'PY'
